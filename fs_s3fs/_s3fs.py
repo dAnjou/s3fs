@@ -394,7 +394,8 @@ class S3FS(FS):
     def s3_generate_presigned_url(self, method, **kwargs):
         return self.client.generate_presigned_url(method, **kwargs)
 
-
+    def s3_put(self, bucket, key, **kwargs):
+        return self.client.put_object(Bucket=bucket, Key=key, **kwargs)
 
     def _info_from_object(self, obj, namespaces):
         """Make an info dict from an s3 Object."""
@@ -519,7 +520,7 @@ class S3FS(FS):
             else:
                 raise errors.DirectoryExists(path)
         with s3errors(path):
-            self.s3.Object(self._bucket_name, _key).put()
+            self.s3_put(self._bucket_name, _key)
         return self.opendir(path)
 
     def openbin(self, path, mode="r", buffering=-1, **options):
