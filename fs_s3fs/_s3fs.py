@@ -365,23 +365,36 @@ class S3FS(FS):
             )
         return self._tlocal.client
 
-    def s3_upload(self, *args, **kwargs):
-        self.client.upload_fileobj(*args, **kwargs)
+    def s3_upload(self, file, bucket, key, **kwargs):
+        self.client.upload_fileobj(file, bucket, key, **kwargs)
 
-    def s3_download(self, *args, **kwargs):
-        self.client.download_fileobj(*args, **kwargs)
+    def s3_download(self, bucket, key, file, **kwargs):
+        self.client.download_fileobj(bucket, key, file, **kwargs)
 
-    def s3_copy(self, *args, **kwargs):
-        self.client.copy_object(*args, **kwargs)
+    def s3_copy(
+            self, dst_bucket, dst_key, src_bucket, src_key,
+            src_version_id=None, **kwargs
+    ):
+        src = dict(Bucket=src_bucket, Key=src_key)
+        if src_version_id is not None:
+            src.update(VersionId=src_version_id)
+        return self.client.copy_object(
+            Bucket=dst_bucket,
+            Key=dst_key,
+            CopySource=src,
+            **kwargs
+        )
 
-    def s3_list(self, *args, **kwargs):
-        return self.client.list_objects(*args, **kwargs)
+    def s3_list(self, bucket, **kwargs):
+        return self.client.list_objects(Bucket=bucket, **kwargs)
 
-    def s3_delete(self, *args, **kwargs):
-        self.client.delete_object(*args, **kwargs)
+    def s3_delete(self, bucket, key, **kwargs):
+        return self.client.delete_object(Bucket=bucket, Key=key, **kwargs)
 
-    def s3_generate_presigned_url(self, *args, **kwargs):
-        return self.client.generate_presigned_url(*args, **kwargs)
+    def s3_generate_presigned_url(self, method, **kwargs):
+        return self.client.generate_presigned_url(method, **kwargs)
+
+
 
     def _info_from_object(self, obj, namespaces):
         """Make an info dict from an s3 Object."""
@@ -415,7 +428,7 @@ class S3FS(FS):
                 s3info[name] = value
         if 'urls' in namespaces:
             url = self.s3_generate_presigned_url(
-                ClientMethod='get_object',
+                'get_object',
                 Params={
                     'Bucket': self._bucket_name,
                     'Key': key
@@ -586,20 +599,13 @@ class S3FS(FS):
             info = self.getinfo(path)
             if info.is_dir:
                 raise errors.FileExpected(path)
-        self.s3_delete(
-            Bucket=self._bucket_name,
-            Key=_key
-        )
+        self.s3_delete(self._bucket_name, _key)
 
     def isempty(self, path):
         self.check()
         _path = self.validatepath(path)
         _key = self._path_to_dir_key(_path)
-        response = self.s3_list(
-            Bucket=self._bucket_name,
-            Prefix=_key,
-            MaxKeys=2,
-        )
+        response = self.s3_list(self._bucket_name, Prefix=_key, MaxKeys=2)
         contents = response.get("Contents", ())
         for obj in contents:
             if obj["Key"] != _key:
@@ -617,10 +623,7 @@ class S3FS(FS):
         if not self.isempty(path):
             raise errors.DirectoryNotEmpty(path)
         _key = self._path_to_dir_key(_path)
-        self.s3_delete(
-            Bucket=self._bucket_name,
-            Key=_key
-        )
+        self.s3_delete(self._bucket_name, _key)
 
     def setinfo(self, path, info):
         self.getinfo(path)
@@ -754,12 +757,10 @@ class S3FS(FS):
         try:
             with s3errors(src_path):
                 self.s3_copy(
-                    Bucket=self._bucket_name,
-                    Key=_dst_key,
-                    CopySource={
-                        'Bucket':self._bucket_name,
-                        'Key':_src_key
-                    }
+                    self._bucket_name,
+                    _dst_key,
+                    self._bucket_name,
+                    _src_key
                 )
         except errors.ResourceNotFound:
             if self.exists(src_path):
@@ -777,7 +778,7 @@ class S3FS(FS):
             raise errors.NoURL(path, purpose)
         if purpose == 'download':
             url = self.s3_generate_presigned_url(
-                ClientMethod='get_object',
+                'get_object',
                 Params={
                     'Bucket': self._bucket_name,
                     'Key': _key
